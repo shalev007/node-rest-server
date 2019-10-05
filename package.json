@@ -4,7 +4,8 @@
   "description": "a simple node REST server",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon app"
   },
   "repository": {
     "type": "git",
@@ -15,5 +16,9 @@
   "bugs": {
     "url": "https://github.com/shalev007/nodeRestServer/issues"
   },
-  "homepage": "https://github.com/shalev007/nodeRestServer#readme"
+  "homepage": "https://github.com/shalev007/nodeRestServer#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "nodemon": "^1.19.3"
+  }
 }
