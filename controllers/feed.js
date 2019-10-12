@@ -13,6 +13,7 @@ exports.getPosts = (req, res, next) => {
         .then(count => {
             totalItems = count;
             return Post.find()
+                .populate('creator')
                 .skip((currentPage - 1) * ITEMS_PER_PAGE)
                 .limit(ITEMS_PER_PAGE);
         })    
