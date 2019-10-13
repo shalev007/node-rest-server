@@ -1,33 +1,32 @@
 const {validationResult} = require('express-validator/check');
+const io = require('../socket');
 const Post = require('../models/post');
 const User = require('../models/user');
 const errorHelper = require('../helpers/error');
 const imageHelper = require('../helpers/image');
 
-exports.getPosts = (req, res, next) => {
+exports.getPosts = async (req, res, next) => {
     const ITEMS_PER_PAGE = 2;
     const currentPage = req.query.page || 1;
-    let totalItems;
-    Post.find()
-        .countDocuments()
-        .then(count => {
-            totalItems = count;
-            return Post.find()
-                .populate('creator')
-                .skip((currentPage - 1) * ITEMS_PER_PAGE)
-                .limit(ITEMS_PER_PAGE);
-        })    
-        .then(posts => {
-            res.status(200).json({
-                message: 'posts fetched succefully!',
-                posts,
-                totalItems
-            });
-        })
-        .catch(err => errorHelper.catchError(err, next));
+    try {
+        const totalItems = await Post.find().countDocuments();
+        const posts = await Post.find()
+            .populate('creator')
+            .sort({createdAt: -1})
+            .skip((currentPage - 1) * ITEMS_PER_PAGE)
+            .limit(ITEMS_PER_PAGE);
+        
+        res.status(200).json({
+            message: 'posts fetched succefully!',
+            posts,
+            totalItems
+        });
+    } catch (error) {
+        errorHelper.catchError(err, next)
+    }
 };
 
-exports.createPost = (req, res, next) => {
+exports.createPost = async (req, res, next) => {
     const errors = validationResult(req);
     let creator;
 
@@ -47,24 +46,24 @@ exports.createPost = (req, res, next) => {
         imageUrl,
         creator: req.userId
     });
-    post.save()
-        .then(result => {
-            return User.findById(req.userId);
-        })
-        .then(user => {
-            creator = user;
-            user.posts.push(post);
-            return user.save();
-        })
-        .then(result => {
-            console.log({post, creator});
-            res.status(201).json({
-                message: 'post created successfully!',
-                post,
-                creator: {_id: creator._id, name: creator.name},
-            });
-        })
-        .catch(err => errorHelper.catchError(err, next));
+    try {
+        await post.save()
+        const user = await User.findById(req.userId);
+        creator = user;
+        user.posts.push(post);
+        await user.save();
+        io.getIo().emit('posts', {
+            action: 'create',
+            post,
+        });
+        res.status(201).json({
+            message: 'post created successfully!',
+            post,
+            creator: {_id: creator._id, name: creator.name},
+        });
+    } catch (error) {
+        errorHelper.catchError(error, next)
+    }
     
 };
 
@@ -83,7 +82,7 @@ exports.getPost = (req, res, next) => {
         .catch(err => errorHelper.catchError(err, next));
 };
 
-exports.putPost = (req, res, next) => {
+exports.putPost = async (req, res, next) => {
     const errors = validationResult(req);
 
     if (!errors.isEmpty()) {
@@ -102,56 +101,64 @@ exports.putPost = (req, res, next) => {
         errorHelper.throwError('No file picked!', 422);
     }
 
-    Post.findById(id)
-        .then(post => {
-            if (!post) {
-                errorHelper.throwError(`Post with id: ${id} was not found...`, 404);
-            }
-            if (post.creator.toString() !== req.userId.toString()) {
-                errorHelper.throwError(`Not autherized...`, 403);
-            }
-            if (imageUrl !== post.imageUrl) {
-                imageHelper.clearImage(post.imageUrl);
-            }
-            post.title = title;
-            post.content = content;
-            post.imageUrl = imageUrl;
-            return post.save();
-        })
-        .then(result => {
-            res.status(200).json({
-                message: 'post updated!',
-                post: result
-            });
-        })
-        .catch(err => errorHelper.catchError(err, next));
+    try {
+        const post = await Post.findById(id).populate('creator');
+        if (!post) {
+            errorHelper.throwError(`Post with id: ${id} was not found...`, 404);
+        }
+        if (post.creator._id.toString() !== req.userId.toString()) {
+            errorHelper.throwError(`Not autherized...`, 403);
+        }
+        if (imageUrl !== post.imageUrl) {
+            imageHelper.clearImage(post.imageUrl);
+        }
+        post.title = title;
+        post.content = content;
+        post.imageUrl = imageUrl;
+        const result = await post.save();
+        res.status(200).json({
+            message: 'post updated!',
+            post: result
+        });
+        io.getIo().emit('posts', {
+            action: 'update',
+            post: result
+        });
+    } catch (error) {
+        errorHelper.catchError(err, next);   
+    }
 };
 
-exports.deletePost = (req, res, next) => {
+exports.deletePost = async (req, res, next) => {
     const id = req.params.id;
-    Post.findById(id)
-        .then(post => {
-            if (!post) {
-                errorHelper.throwError(`Post with id: ${id} was not found...`, 404);
-            }
-            if (post.creator.toString() !== req.userId.toString()) {
-                errorHelper.throwError(`Not autherized...`, 403);
-            }
-            imageHelper.clearImage(post.imageUrl);
-            return Post.findByIdAndRemove(id);
+    try {
+        const post = await Post.findById(id);
+        if (!post) {
+            errorHelper.throwError(`Post with id: ${id} was not found...`, 404);
+        }
+        if (post.creator.toString() !== req.userId.toString()) {
+            errorHelper.throwError(`Not autherized...`, 403);
+        }
+        // delete image file
+        imageHelper.clearImage(post.imageUrl);
+        // remove post from DB
+        await Post.findByIdAndRemove(id);
+        // remove post ref from user
+        const user = await User.findById(req.userId);
+        user.posts.pull(id);
+        await user.save();
+        // return success response
+        res.status(200)
+            .json({
+                message: 'post removed!'
+            });
+
+        // emit socket event
+        io.getIo().emit('posts', {
+            action: 'delete',
+            post: id
         })
-        .then(result => {
-            return User.findById(req.userId);
-        })
-        .then(user => {
-            user.posts.pull(id);
-            return user.save();
-        })
-        .then(result => {
-            res.status(200)
-                    .json({
-                        message: 'post removed!'
-                    });
-        })
-        .catch(err => errorHelper.catchError(err, next));
+    } catch (error) {
+        errorHelper.catchError(err, next);
+    }
 };
