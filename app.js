@@ -4,8 +4,10 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const uuidv4 = require('uuid/v4');
-const feedRoutes = require('./routes/feed');
-const authRoutes = require('./routes/auth');
+const graphqlHttp = require('express-graphql');
+const graphqlSchema = require('./graphql/schema');
+const graphqlResolver = require('./graphql/resolvers');
+
 const app = express();
  
 const storage = multer.diskStorage({
@@ -41,10 +43,10 @@ app.use((req, res, next) => {
     next();
 });
 
-// list routes
-app.use('/feed', feedRoutes);
-app.use('/auth', authRoutes);
-
+app.use('/graphql', graphqlHttp({
+    schema: graphqlSchema,
+    rootValue: graphqlResolver
+}));
 // error router
 app.use((error, req, res, next)=> {
     console.log('\x1b[31m', error);
@@ -57,10 +59,6 @@ app.use((error, req, res, next)=> {
 mongoose
     .connect('mongodb://localhost:27017/NodeRestServer')
     .then(result => {
-        const server = app.listen(8080);
-        const io = require('./socket').init(server);
-        io.on('connection', socket => {
-            console.log('client connected');
-        });
+        app.listen(8080);
     })
     .catch(err => console.trace(err));

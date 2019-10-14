@@ -1,5 +1,4 @@
 const {validationResult} = require('express-validator/check');
-const io = require('../socket');
 const Post = require('../models/post');
 const User = require('../models/user');
 const errorHelper = require('../helpers/error');
@@ -52,10 +51,6 @@ exports.createPost = async (req, res, next) => {
         creator = user;
         user.posts.push(post);
         await user.save();
-        io.getIo().emit('posts', {
-            action: 'create',
-            post,
-        });
         res.status(201).json({
             message: 'post created successfully!',
             post,
@@ -120,10 +115,6 @@ exports.putPost = async (req, res, next) => {
             message: 'post updated!',
             post: result
         });
-        io.getIo().emit('posts', {
-            action: 'update',
-            post: result
-        });
     } catch (error) {
         errorHelper.catchError(err, next);   
     }
@@ -153,11 +144,6 @@ exports.deletePost = async (req, res, next) => {
                 message: 'post removed!'
             });
 
-        // emit socket event
-        io.getIo().emit('posts', {
-            action: 'delete',
-            post: id
-        })
     } catch (error) {
         errorHelper.catchError(err, next);
     }
